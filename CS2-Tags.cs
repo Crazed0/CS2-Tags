@@ -133,7 +133,7 @@ public class CS2_Tags : BasePlugin, IPluginConfig<CS2_TagsConfig>
                 
                 // Aplicar a formatação definida na Config
                 string formattedPrefix = Config.PrefixEnabled 
-                    ? $"{csColor}{prefix} {Config.PlayerCustomFont}{Config.PrefixSeparator}" 
+                    ? $"{csColor}{Config.TagPrefix}{prefix}{Config.TagSuffix}{Config.PlayerCustomFont}{Config.PrefixSeparator}" 
                     : ""; // Se desativado, o prefixo é vazio no chat
 
                 // Construir objeto do cargo
@@ -154,7 +154,7 @@ public class CS2_Tags : BasePlugin, IPluginConfig<CS2_TagsConfig>
                 tagsRoot["everyone"] = new JObject
                 {
                     ["team_chat"] = false,
-                    ["prefix"] = Config.PrefixEnabled ? "{Grey}JOGADOR {Default} | " : "",
+                    ["prefix"] = Config.PrefixEnabled ? $"{{Grey}}{Config.TagPrefix}JOGADOR{Config.TagSuffix}{{Default}}{Config.PrefixSeparator}" : "",
                     ["nick_color"] = "",
                     ["message_color"] = "",
                     ["scoreboard"] = "JOGADOR |"

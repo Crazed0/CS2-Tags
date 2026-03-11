@@ -19,4 +19,10 @@ public class CS2_TagsConfig : BasePluginConfig
 
     [JsonPropertyName("PrefixSeparator")]
     public string PrefixSeparator { get; set; } = " | ";
+
+    [JsonPropertyName("TagPrefix")]
+    public string TagPrefix { get; set; } = "";
+
+    [JsonPropertyName("TagSuffix")]
+    public string TagSuffix { get; set; } = "";
 }
