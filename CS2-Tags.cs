@@ -207,6 +207,24 @@ public class CS2_Tags : BasePlugin, IPluginConfig<CS2_TagsConfig>
                         }
                     }
                 }
+
+                // Logar na consola as tags de quem está no servidor
+                Server.NextFrame(() => {
+                    Server.PrintToConsole("[CS2-Tags] --- Jogadores Online e Tags ---");
+                    foreach (var p in Utilities.GetPlayers().Where(p => p.IsValid && !p.IsBot))
+                    {
+                        string sid = p.AuthorizedSteamID?.SteamId64.ToString() ?? "";
+                        if (PlayerAssignedFlags.TryGetValue(sid, out var flag))
+                        {
+                            Server.PrintToConsole($"[CS2-Tags] Player: {p.PlayerName} | Flag: {flag}");
+                        }
+                        else 
+                        {
+                            Server.PrintToConsole($"[CS2-Tags] Player: {p.PlayerName} | Flag: (not assigned)");
+                        }
+                    }
+                    Server.PrintToConsole("[CS2-Tags] --------------------------------");
+                });
             }
         }
         catch (Exception ex)
