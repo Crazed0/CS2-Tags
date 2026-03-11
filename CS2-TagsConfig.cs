@@ -25,4 +25,7 @@ public class CS2_TagsConfig : BasePluginConfig
 
     [JsonPropertyName("TagSuffix")]
     public string TagSuffix { get; set; } = "";
+
+    [JsonPropertyName("Debug")]
+    public bool Debug { get; set; } = false;
 }

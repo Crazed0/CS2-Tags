@@ -60,25 +60,26 @@ public class CS2_Tags : BasePlugin, IPluginConfig<CS2_TagsConfig>
             }
         });
 
-        // Forçar 10 segundos para garantir que o utilizador tem a velocidade que pediu,
-        // mesmo que o ficheiro .json no servidor esteja estagnado nos 60s.
-        int forcedInterval = 10;
-        Server.PrintToConsole($"[CS2-Tags] ACTIVE HYPER-SPEED: Lowering interval to {forcedInterval}s (Config was: {Config.UpdateIntervalSeconds}s)");
+        Server.PrintToConsole($"[CS2-Tags] Registered with UpdateInterval: {Config.UpdateIntervalSeconds}s");
 
-        updateTimer = AddTimer(forcedInterval, () =>
+        // Agendar atualizações autoáticas
+        if (Config.UpdateIntervalSeconds > 0)
         {
-            _ = FetchTagsFromApi();
-            // Re-fetch para todos os jogadores online em batch
-            var onlineSids = Utilities.GetPlayers()
-                .Where(p => p.IsValid && !p.IsBot && p.AuthorizedSteamID != null)
-                .Select(p => p.AuthorizedSteamID!.SteamId64.ToString())
-                .ToList();
-            
-            if (onlineSids.Count > 0)
+            updateTimer = AddTimer(Config.UpdateIntervalSeconds, () =>
             {
-                _ = FetchPlayersTags(onlineSids);
-            }
-        }, CounterStrikeSharp.API.Modules.Timers.TimerFlags.REPEAT);
+                _ = FetchTagsFromApi();
+                // Re-fetch para todos os jogadores online em batch
+                var onlineSids = Utilities.GetPlayers()
+                    .Where(p => p.IsValid && !p.IsBot && p.AuthorizedSteamID != null)
+                    .Select(p => p.AuthorizedSteamID!.SteamId64.ToString())
+                    .ToList();
+                
+                if (onlineSids.Count > 0)
+                {
+                    _ = FetchPlayersTags(onlineSids);
+                }
+            }, CounterStrikeSharp.API.Modules.Timers.TimerFlags.REPEAT);
+        }
 
         RegisterListener<Listeners.OnMapStart>(OnMapStart);
         RegisterListener<Listeners.OnClientAuthorized>(OnClientAuthorized);
@@ -199,7 +200,7 @@ public class CS2_Tags : BasePlugin, IPluginConfig<CS2_TagsConfig>
             string ids = string.Join(",", steamids);
             string url = $"{Config.ApiUrl.TrimEnd('/')}/perms/player?steamids={ids}";
             string timeStart = DateTime.Now.ToString("HH:mm:ss");
-            Server.PrintToConsole($"[CS2-Tags] [{timeStart}] Fetching tags for {steamids.Count} players...");
+            if (Config.Debug) Server.PrintToConsole($"[CS2-Tags] [{timeStart}] Fetching tags for {steamids.Count} players...");
             HttpResponseMessage response = await httpClient.GetAsync(url);
             response.EnsureSuccessStatusCode();
 
@@ -249,17 +250,20 @@ public class CS2_Tags : BasePlugin, IPluginConfig<CS2_TagsConfig>
                     }
 
                     // Logar na consola as tags de quem está no servidor com timestamp
-                    string nowSafe = DateTime.Now.ToString("HH:mm:ss");
-                    Server.PrintToConsole($"[CS2-Tags] [{nowSafe}] --- Jogadores Online e Tags ---");
-                    foreach (var p in Utilities.GetPlayers().Where(p => p.IsValid && !p.IsBot))
+                    if (Config.Debug)
                     {
-                        string sid = p.AuthorizedSteamID?.SteamId64.ToString() ?? "";
-                        if (PlayerAssignedFlags.TryGetValue(sid, out var flag))
-                            Server.PrintToConsole($"[CS2-Tags] [{nowSafe}] Player: {p.PlayerName} | Flag: {flag}");
-                        else 
-                            Server.PrintToConsole($"[CS2-Tags] [{nowSafe}] Player: {p.PlayerName} | Flag: (not assigned)");
+                        string nowSafe = DateTime.Now.ToString("HH:mm:ss");
+                        Server.PrintToConsole($"[CS2-Tags] [{nowSafe}] --- Jogadores Online e Tags ---");
+                        foreach (var p in Utilities.GetPlayers().Where(p => p.IsValid && !p.IsBot))
+                        {
+                            string sid = p.AuthorizedSteamID?.SteamId64.ToString() ?? "";
+                            if (PlayerAssignedFlags.TryGetValue(sid, out var flag))
+                                Server.PrintToConsole($"[CS2-Tags] [{nowSafe}] Player: {p.PlayerName} | Flag: {flag}");
+                            else 
+                                Server.PrintToConsole($"[CS2-Tags] [{nowSafe}] Player: {p.PlayerName} | Flag: (not assigned)");
+                        }
+                        Server.PrintToConsole($"[CS2-Tags] [{nowSafe}] --------------------------------");
                     }
-                    Server.PrintToConsole($"[CS2-Tags] [{nowSafe}] --------------------------------");
                 });
             }
         }
@@ -610,7 +614,7 @@ public class CS2_Tags : BasePlugin, IPluginConfig<CS2_TagsConfig>
                     player.Clan = "";
                     Utilities.SetStateChanged(player, "CCSPlayerController", "m_szClan");
                     
-                    AddTimer(0.1f, () => {
+                    Server.NextFrame(() => {
                         if (player != null && player.IsValid)
                         {
                             player.Clan = foundScoreboard;
