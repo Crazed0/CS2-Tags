@@ -610,15 +610,23 @@ public class CS2_Tags : BasePlugin, IPluginConfig<CS2_TagsConfig>
             {
                 if (player.Clan != foundScoreboard)
                 {
-                    // Trick to force scoreboard update: toggle to empty and back
+                    // Força a atualização no TAB (Scoreboard) limpando e setando novamente
                     player.Clan = "";
                     Utilities.SetStateChanged(player, "CCSPlayerController", "m_szClan");
-                    
-                    Server.NextFrame(() => {
+
+                    var pawn = player.PlayerPawn.Value;
+
+                    AddTimer(0.1f, () => {
                         if (player != null && player.IsValid)
                         {
                             player.Clan = foundScoreboard;
                             Utilities.SetStateChanged(player, "CCSPlayerController", "m_szClan");
+                            
+                            // Em alguns casos, o Pawn também precisa de refresh se houver flags de clan associadas
+                            if (pawn != null && pawn.IsValid)
+                            {
+                                Utilities.SetStateChanged(pawn, "CBaseEntity", "m_iTeamNum"); // Trigger genérico de refresh
+                            }
                         }
                     });
                 }
