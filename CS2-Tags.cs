@@ -197,6 +197,8 @@ public class CS2_Tags : BasePlugin, IPluginConfig<CS2_TagsConfig>
         {
             string ids = string.Join(",", steamids);
             string url = $"{Config.ApiUrl.TrimEnd('/')}/perms/player?steamids={ids}";
+            string timeStart = DateTime.Now.ToString("HH:mm:ss");
+            Server.PrintToConsole($"[CS2-Tags] [{timeStart}] Fetching tags for {ids.Length} players...");
             HttpResponseMessage response = await httpClient.GetAsync(url);
             response.EnsureSuccessStatusCode();
 
@@ -245,17 +247,18 @@ public class CS2_Tags : BasePlugin, IPluginConfig<CS2_TagsConfig>
                         if (p != null && p.IsValid) SetPlayerClanTag(p);
                     }
 
-                    // Logar na consola as tags de quem está no servidor
-                    Server.PrintToConsole("[CS2-Tags] --- Jogadores Online e Tags ---");
+                    // Logar na consola as tags de quem está no servidor com timestamp
+                    string nowSafe = DateTime.Now.ToString("HH:mm:ss");
+                    Server.PrintToConsole($"[CS2-Tags] [{nowSafe}] --- Jogadores Online e Tags ---");
                     foreach (var p in Utilities.GetPlayers().Where(p => p.IsValid && !p.IsBot))
                     {
                         string sid = p.AuthorizedSteamID?.SteamId64.ToString() ?? "";
                         if (PlayerAssignedFlags.TryGetValue(sid, out var flag))
-                            Server.PrintToConsole($"[CS2-Tags] Player: {p.PlayerName} | Flag: {flag}");
+                            Server.PrintToConsole($"[CS2-Tags] [{nowSafe}] Player: {p.PlayerName} | Flag: {flag}");
                         else 
-                            Server.PrintToConsole($"[CS2-Tags] Player: {p.PlayerName} | Flag: (not assigned)");
+                            Server.PrintToConsole($"[CS2-Tags] [{nowSafe}] Player: {p.PlayerName} | Flag: (not assigned)");
                     }
-                    Server.PrintToConsole("[CS2-Tags] --------------------------------");
+                    Server.PrintToConsole($"[CS2-Tags] [{nowSafe}] --------------------------------");
                 });
             }
         }
