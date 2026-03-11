@@ -610,23 +610,25 @@ public class CS2_Tags : BasePlugin, IPluginConfig<CS2_TagsConfig>
             {
                 if (player.Clan != foundScoreboard)
                 {
-                    // Força a atualização no TAB (Scoreboard) limpando e setando novamente
+                    // Força a atualização no TAB (Scoreboard) usando o truque de "Nome + Clan"
+                    // Mudar o nome brevemente (adicionando um espaço) força o CS2 a atualizar a linha no TAB
+                    string originalName = player.PlayerName;
+                    
                     player.Clan = "";
+                    var nameHandle = new SchemaString<CBasePlayerController>(player, "m_iszPlayerName");
+                    nameHandle.Set(originalName + " ");
+                    
                     Utilities.SetStateChanged(player, "CCSPlayerController", "m_szClan");
+                    Utilities.SetStateChanged(player, "CBasePlayerController", "m_iszPlayerName");
 
-                    var pawn = player.PlayerPawn.Value;
-
-                    AddTimer(0.1f, () => {
+                    AddTimer(0.25f, () => {
                         if (player != null && player.IsValid)
                         {
                             player.Clan = foundScoreboard;
-                            Utilities.SetStateChanged(player, "CCSPlayerController", "m_szClan");
+                            nameHandle.Set(originalName);
                             
-                            // Em alguns casos, o Pawn também precisa de refresh se houver flags de clan associadas
-                            if (pawn != null && pawn.IsValid)
-                            {
-                                Utilities.SetStateChanged(pawn, "CBaseEntity", "m_iTeamNum"); // Trigger genérico de refresh
-                            }
+                            Utilities.SetStateChanged(player, "CCSPlayerController", "m_szClan");
+                            Utilities.SetStateChanged(player, "CBasePlayerController", "m_iszPlayerName");
                         }
                     });
                 }
