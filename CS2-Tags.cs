@@ -120,8 +120,10 @@ public class CS2_Tags : BasePlugin, IPluginConfig<CS2_TagsConfig>
             JObject newTagsStructure = new JObject();
             JObject tagsRoot = new JObject();
 
-            foreach (JObject role in rolesArray)
+            foreach (var token in rolesArray)
             {
+                if (token is not JObject role) continue;
+
                 string? flag = role["flag"]?.ToString();
                 string? prefix = role["discordname"]?.ToString();
                 string? hexColor = role["color"]?.ToString();
@@ -134,7 +136,7 @@ public class CS2_Tags : BasePlugin, IPluginConfig<CS2_TagsConfig>
                 // Aplicar a formatação definida na Config
                 string formattedPrefix = Config.PrefixEnabled 
                     ? $"{csColor}{Config.TagPrefix}{prefix}{Config.TagSuffix}{Config.PlayerCustomFont}{Config.PrefixSeparator}" 
-                    : ""; // Se desativado, o prefixo é vazio no chat
+                    : ""; 
 
                 // Construir objeto do cargo
                 JObject roleTag = new JObject
@@ -142,7 +144,7 @@ public class CS2_Tags : BasePlugin, IPluginConfig<CS2_TagsConfig>
                     ["prefix"] = formattedPrefix,
                     ["nick_color"] = csColor,
                     ["message_color"] = "{Default}",
-                    ["scoreboard"] = $"{prefix} |" // Nome limpo para o Scoreboard
+                    ["scoreboard"] = $"{prefix} |" 
                 };
 
                 tagsRoot[flag] = roleTag;
@@ -201,18 +203,37 @@ public class CS2_Tags : BasePlugin, IPluginConfig<CS2_TagsConfig>
             string jsonResponse = await response.Content.ReadAsStringAsync();
             JObject apiData = JObject.Parse(jsonResponse);
 
-            if (apiData["success"]?.Value<bool>() == true && apiData["data"] is JArray playersArray)
+            if (apiData["success"]?.Value<bool>() == true && apiData["data"] != null)
             {
-                // Processar dados fora da main thread para performance
                 var results = new List<(string sid, string flag)>();
-                foreach (JObject playerData in playersArray)
-                {
-                    string? sid = playerData["steamid"]?.ToString();
-                    string? flag = playerData["role"]?["flag"]?.ToString();
+                var dataToken = apiData["data"];
+
+                // Função auxiliar para processar um único jogador
+                Action<JObject> processPlayer = (playerObj) => {
+                    string? sid = playerObj["steamid"]?.ToString();
+                    JToken? roleToken = playerObj["role"];
+                    
+                    // SEGURANÇA: Verificar se "role" é um objeto antes de indexar ["flag"]
+                    // O erro "Cannot access child value on JValue" acontecia aqui se role fosse null/string
+                    string? flag = (roleToken is JObject roleObj) ? roleObj["flag"]?.ToString() : null;
+
                     if (!string.IsNullOrEmpty(sid) && !string.IsNullOrEmpty(flag))
                     {
                         results.Add((sid, flag));
                     }
+                };
+
+                // Tratar tanto Array como Objeto único por segurança
+                if (dataToken is JArray datArr)
+                {
+                    foreach (var token in datArr)
+                    {
+                        if (token is JObject obj) processPlayer(obj);
+                    }
+                }
+                else if (dataToken is JObject singleObj)
+                {
+                    processPlayer(singleObj);
                 }
 
                 // Voltar para a Main Thread para atualizar o jogo
