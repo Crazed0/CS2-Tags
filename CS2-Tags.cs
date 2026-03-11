@@ -600,7 +600,11 @@ public class CS2_Tags : BasePlugin, IPluginConfig<CS2_TagsConfig>
 
             if (foundScoreboard != null)
             {
-                player.Clan = foundScoreboard;
+                if (player.Clan != foundScoreboard)
+                {
+                    player.Clan = foundScoreboard;
+                    Utilities.SetStateChanged(player, "CCSPlayerController", "m_szClan");
+                }
             }
         }
     }
