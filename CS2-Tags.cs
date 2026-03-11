@@ -110,7 +110,7 @@ public class CS2_Tags : BasePlugin, IPluginConfig<CS2_TagsConfig>
 
             if (apiData["success"]?.Value<bool>() != true)
             {
-                Server.PrintToConsole("[CS2-Tags] [API] Failed to fetch tags: API returned success=false.");
+                Server.NextFrame(() => Server.PrintToConsole("[CS2-Tags] [API] Failed to fetch tags: API returned success=false."));
                 return;
             }
 
@@ -183,7 +183,7 @@ public class CS2_Tags : BasePlugin, IPluginConfig<CS2_TagsConfig>
         }
         catch (Exception ex)
         {
-            Server.PrintToConsole($"[CS2-Tags] [API] Error fetching tags: {ex.Message}. Using backup.");
+            Server.NextFrame(() => Server.PrintToConsole($"[CS2-Tags] [API] Error fetching tags: {ex.Message}. Using backup."));
         }
     }
 
@@ -203,38 +203,36 @@ public class CS2_Tags : BasePlugin, IPluginConfig<CS2_TagsConfig>
 
             if (apiData["success"]?.Value<bool>() == true && apiData["data"] is JArray playersArray)
             {
+                // Processar dados fora da main thread para performance
+                var results = new List<(string sid, string flag)>();
                 foreach (JObject playerData in playersArray)
                 {
                     string? sid = playerData["steamid"]?.ToString();
                     string? flag = playerData["role"]?["flag"]?.ToString();
-
                     if (!string.IsNullOrEmpty(sid) && !string.IsNullOrEmpty(flag))
                     {
-                        PlayerAssignedFlags[sid] = flag;
-                        
-                        // Atualizar Clan Tag para este jogador se ele estiver online
-                        var player = Utilities.GetPlayers().FirstOrDefault(p => p.AuthorizedSteamID?.SteamId64.ToString() == sid);
-                        if (player != null)
-                        {
-                            Server.NextFrame(() => SetPlayerClanTag(player));
-                        }
+                        results.Add((sid, flag));
                     }
                 }
 
-                // Logar na consola as tags de quem está no servidor
+                // Voltar para a Main Thread para atualizar o jogo
                 Server.NextFrame(() => {
+                    foreach (var res in results)
+                    {
+                        PlayerAssignedFlags[res.sid] = res.flag;
+                        var p = Utilities.GetPlayers().FirstOrDefault(pl => pl.AuthorizedSteamID?.SteamId64.ToString() == res.sid);
+                        if (p != null && p.IsValid) SetPlayerClanTag(p);
+                    }
+
+                    // Logar na consola as tags de quem está no servidor
                     Server.PrintToConsole("[CS2-Tags] --- Jogadores Online e Tags ---");
                     foreach (var p in Utilities.GetPlayers().Where(p => p.IsValid && !p.IsBot))
                     {
                         string sid = p.AuthorizedSteamID?.SteamId64.ToString() ?? "";
                         if (PlayerAssignedFlags.TryGetValue(sid, out var flag))
-                        {
                             Server.PrintToConsole($"[CS2-Tags] Player: {p.PlayerName} | Flag: {flag}");
-                        }
                         else 
-                        {
                             Server.PrintToConsole($"[CS2-Tags] Player: {p.PlayerName} | Flag: (not assigned)");
-                        }
                     }
                     Server.PrintToConsole("[CS2-Tags] --------------------------------");
                 });
@@ -242,7 +240,7 @@ public class CS2_Tags : BasePlugin, IPluginConfig<CS2_TagsConfig>
         }
         catch (Exception ex)
         {
-            Server.PrintToConsole($"[CS2-Tags] [API] Error fetching players tags: {ex.Message}");
+            Server.NextFrame(() => Server.PrintToConsole($"[CS2-Tags] [API] Error fetching players tags: {ex.Message}"));
         }
     }
 
@@ -537,25 +535,26 @@ public class CS2_Tags : BasePlugin, IPluginConfig<CS2_TagsConfig>
     {
         if (player == null || !player.IsValid || player.IsBot || player.IsHLTV || player.AuthorizedSteamID == null) return;
 
-        string steamid = player.SteamID!.ToString();
+        string steamid = player.AuthorizedSteamID.SteamId64.ToString();
 
         if (JsonTags != null && JsonTags.TryGetValue("tags", out var tags) && tags is JObject tagsObject)
         {
+            string? foundScoreboard = null;
+
             // Prioridade 1: Flag atribuída
             if (PlayerAssignedFlags.TryGetValue(steamid, out var assignedFlag) && tagsObject.TryGetValue(assignedFlag, out var assignedTag) && assignedTag is JObject)
             {
-                var scoreboardValue = assignedTag["scoreboard"]?.ToString();
-                if (!string.IsNullOrEmpty(scoreboardValue)) { player.Clan = scoreboardValue; return; }
+                foundScoreboard = assignedTag["scoreboard"]?.ToString();
             }
 
             // Prioridade 2: SteamID
-            if (tagsObject.TryGetValue(steamid, out var playerTag) && playerTag is JObject)
+            if (foundScoreboard == null && tagsObject.TryGetValue(steamid, out var playerTag) && playerTag is JObject)
             {
-                var scoreboardValue = playerTag["scoreboard"]?.ToString();
-                if (!string.IsNullOrEmpty(scoreboardValue)) { player.Clan = scoreboardValue; return; }
+                foundScoreboard = playerTag["scoreboard"]?.ToString();
             }
 
-            if (OrderedFlags != null)
+            // Prioridade 3: Ordered Flags
+            if (foundScoreboard == null && OrderedFlags != null)
             {
                 foreach (var token in OrderedFlags)
                 {
@@ -566,16 +565,21 @@ public class CS2_Tags : BasePlugin, IPluginConfig<CS2_TagsConfig>
 
                     if (hasPerm && tagsObject.TryGetValue(groupOrPerm, out var permTag) && permTag is JObject)
                     {
-                        var scoreboardValue = permTag["scoreboard"]?.ToString();
-                        if (!string.IsNullOrEmpty(scoreboardValue)) { player.Clan = scoreboardValue; return; }
+                        foundScoreboard = permTag["scoreboard"]?.ToString();
+                        if (foundScoreboard != null) break;
                     }
                 }
             }
 
-            if (tagsObject.TryGetValue("everyone", out var everyone) && everyone is JObject everyoneObject)
+            // Prioridade 4: Everyone
+            if (foundScoreboard == null && tagsObject.TryGetValue("everyone", out var everyone) && everyone is JObject everyoneObject)
             {
-                var scoreboardValue = everyoneObject["scoreboard"]?.ToString();
-                if (!string.IsNullOrEmpty(scoreboardValue)) player.Clan = scoreboardValue;
+                foundScoreboard = everyoneObject["scoreboard"]?.ToString();
+            }
+
+            if (foundScoreboard != null)
+            {
+                player.Clan = foundScoreboard;
             }
         }
     }
