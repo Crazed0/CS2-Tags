@@ -7,8 +7,11 @@ using CounterStrikeSharp.API.Modules.Commands;
 using CounterStrikeSharp.API.Modules.Entities;
 using CounterStrikeSharp.API.Modules.Utils;
 using Newtonsoft.Json.Linq;
+using CounterStrikeSharp.API.Modules.Memory;
 using System.Reflection;
 using System.Net.Http;
+using System.Text;
+using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using System.Collections.Concurrent;
 
@@ -27,7 +30,7 @@ public class CS2_Tags : BasePlugin, IPluginConfig<CS2_TagsConfig>
     public override string ModuleName => "CS2-Tags";
     public override string ModuleDescription => "Add player tags easily in cs2 game via API";
     public override string ModuleAuthor => "daffyy, extended";
-    public override string ModuleVersion => "1.1.0";
+    public override string ModuleVersion => "1.1.11";
 
     private HttpClient httpClient = new HttpClient();
     private CounterStrikeSharp.API.Modules.Timers.Timer? updateTimer;
@@ -674,5 +677,22 @@ public class CS2_Tags : BasePlugin, IPluginConfig<CS2_TagsConfig>
             return modifiedValue.Replace("{TEAMCOLOR}", TeamColor(teamNum));
         }
         return message;
+    }
+}
+
+public class SchemaString<TSchemaClass>(TSchemaClass instance, string member)
+    : NativeObject(Schema.GetSchemaValue<nint>(instance.Handle, typeof(TSchemaClass).Name, member))
+    where TSchemaClass : NativeObject
+{
+    public unsafe void Set(string str)
+    {
+        var bytes = Encoding.UTF8.GetBytes(str);
+
+        for (var i = 0; i < bytes.Length; i++)
+        {
+            Unsafe.Write((void*)(Handle.ToInt64() + i), bytes[i]);
+        }
+
+        Unsafe.Write((void*)(Handle.ToInt64() + bytes.Length), (byte)0);
     }
 }
