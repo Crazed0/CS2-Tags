@@ -53,10 +53,15 @@ public class CS2_Tags : BasePlugin, IPluginConfig<CS2_TagsConfig>
             updateTimer = AddTimer(Config.UpdateIntervalSeconds, () =>
             {
                 _ = FetchTagsFromApi();
-                // Re-fetch para todos os jogadores online para garantir que estão atualizados
-                foreach (var p in Utilities.GetPlayers().Where(p => p.IsValid && !p.IsBot))
+                // Re-fetch para todos os jogadores online em batch
+                var onlineSids = Utilities.GetPlayers()
+                    .Where(p => p.IsValid && !p.IsBot && p.AuthorizedSteamID != null)
+                    .Select(p => p.AuthorizedSteamID!.SteamId64.ToString())
+                    .ToList();
+                
+                if (onlineSids.Count > 0)
                 {
-                    _ = FetchPlayerTag(p);
+                    _ = FetchPlayersTags(onlineSids);
                 }
             }, CounterStrikeSharp.API.Modules.Timers.TimerFlags.REPEAT);
         }
@@ -169,31 +174,44 @@ public class CS2_Tags : BasePlugin, IPluginConfig<CS2_TagsConfig>
         }
     }
 
-    private async Task FetchPlayerTag(CCSPlayerController player)
+    private async Task FetchPlayersTags(List<string> steamids)
     {
-        if (player == null || !player.IsValid || player.IsBot || player.IsHLTV || player.AuthorizedSteamID == null) return;
-        
-        string steamid = player.AuthorizedSteamID.SteamId64.ToString();
+        if (steamids == null || steamids.Count == 0) return;
+
         try
         {
-            string url = $"{Config.ApiUrl.TrimEnd('/')}/perms/player?steamid={steamid}";
+            string ids = string.Join(",", steamids);
+            string url = $"{Config.ApiUrl.TrimEnd('/')}/perms/player?steamids={ids}";
             HttpResponseMessage response = await httpClient.GetAsync(url);
             response.EnsureSuccessStatusCode();
 
             string jsonResponse = await response.Content.ReadAsStringAsync();
             JObject apiData = JObject.Parse(jsonResponse);
 
-            if (apiData["success"]?.Value<bool>() == true && apiData["data"]?["role"]?["flag"] != null)
+            if (apiData["success"]?.Value<bool>() == true && apiData["data"] is JArray playersArray)
             {
-                string flag = apiData["data"]!["role"]!["flag"]!.ToString();
-                PlayerAssignedFlags[steamid] = flag;
-                // Atualizar Clan Tag após saber o cargo exato
-                Server.NextFrame(() => SetPlayerClanTag(player));
+                foreach (JObject playerData in playersArray)
+                {
+                    string? sid = playerData["steamid"]?.ToString();
+                    string? flag = playerData["role"]?["flag"]?.ToString();
+
+                    if (!string.IsNullOrEmpty(sid) && !string.IsNullOrEmpty(flag))
+                    {
+                        PlayerAssignedFlags[sid] = flag;
+                        
+                        // Atualizar Clan Tag para este jogador se ele estiver online
+                        var player = Utilities.GetPlayers().FirstOrDefault(p => p.AuthorizedSteamID?.SteamId64.ToString() == sid);
+                        if (player != null)
+                        {
+                            Server.NextFrame(() => SetPlayerClanTag(player));
+                        }
+                    }
+                }
             }
         }
         catch (Exception ex)
         {
-            Server.PrintToConsole($"[CS2-Tags] [API] Error fetching player tag ({steamid}): {ex.Message}");
+            Server.PrintToConsole($"[CS2-Tags] [API] Error fetching players tags: {ex.Message}");
         }
     }
 
@@ -274,7 +292,7 @@ public class CS2_Tags : BasePlugin, IPluginConfig<CS2_TagsConfig>
         CCSPlayerController? player = Utilities.GetPlayerFromSlot(playerSlot);
         if (player == null || !player.IsValid || player.IsBot || player.IsHLTV) return;
 
-        _ = FetchPlayerTag(player);
+        _ = FetchPlayersTags(new List<string> { steamId.SteamId64.ToString() });
         AddTimer(2.5f, () => SetPlayerClanTag(player));
     }
 
@@ -283,7 +301,7 @@ public class CS2_Tags : BasePlugin, IPluginConfig<CS2_TagsConfig>
         CCSPlayerController? player = @event.Userid;
         if (player == null || !player.IsValid || player.IsBot || player.IsHLTV) return HookResult.Continue;
 
-        _ = FetchPlayerTag(player);
+        _ = FetchPlayersTags(new List<string> { player.AuthorizedSteamID!.SteamId64.ToString() });
         AddTimer(2.5f, () => SetPlayerClanTag(player));
         return HookResult.Continue;
     }
