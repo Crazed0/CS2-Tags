@@ -30,7 +30,10 @@ public class CS2_Tags : BasePlugin, IPluginConfig<CS2_TagsConfig>
     public override string ModuleName => "CS2-Tags";
     public override string ModuleDescription => "Add player tags easily in cs2 game via API";
     public override string ModuleAuthor => "daffyy, extended";
-    public override string ModuleVersion => "1.1.11";
+    public override string ModuleVersion => "1.1.12";
+
+    private string? ApiPrefixFont { get; set; }
+    private string? ApiPrefixSeparator { get; set; }
 
     private HttpClient httpClient = new HttpClient();
     private CounterStrikeSharp.API.Modules.Timers.Timer? updateTimer;
@@ -48,6 +51,7 @@ public class CS2_Tags : BasePlugin, IPluginConfig<CS2_TagsConfig>
         LoadJsonBackup(ModuleDirectory + "/tags.json");
 
         // Buscar da API imediatamente
+        _ = FetchApiConfig();
         _ = FetchTagsFromApi();
 
         // Buscar tags dos jogadores online agora (ex: hot reload)
@@ -70,6 +74,7 @@ public class CS2_Tags : BasePlugin, IPluginConfig<CS2_TagsConfig>
         {
             updateTimer = AddTimer(Config.UpdateIntervalSeconds, () =>
             {
+                _ = FetchApiConfig();
                 _ = FetchTagsFromApi();
                 // Re-fetch para todos os jogadores online em batch
                 var onlineSids = Utilities.GetPlayers()
@@ -93,6 +98,63 @@ public class CS2_Tags : BasePlugin, IPluginConfig<CS2_TagsConfig>
         
         AddCommandListener("say", OnPlayerChat);
         AddCommandListener("say_team", OnPlayerChatTeam);
+    }
+
+    private async Task FetchApiConfig()
+    {
+        try
+        {
+            string baseUrl = Config.ApiUrl.TrimEnd('/');
+            
+            // 1. Buscar fonte
+            var fontResp = await httpClient.GetAsync($"{baseUrl}/config/get?name=fontePrefixDiscord");
+            if (fontResp.IsSuccessStatusCode)
+            {
+                var data = JObject.Parse(await fontResp.Content.ReadAsStringAsync());
+                ApiPrefixFont = data["data"]?["value"]?.ToString();
+            }
+
+            // 2. Buscar separador
+            var sepResp = await httpClient.GetAsync($"{baseUrl}/config/get?name=prefixSeparatorDiscord");
+            if (sepResp.IsSuccessStatusCode)
+            {
+                var data = JObject.Parse(await sepResp.Content.ReadAsStringAsync());
+                ApiPrefixSeparator = data["data"]?["value"]?.ToString();
+            }
+        }
+        catch (Exception ex)
+        {
+            if (Config.Debug) Server.PrintToConsole($"[CS2-Tags] [API] Error fetching dynamic config: {ex.Message}");
+        }
+    }
+
+    private string ApplySpecialFont(string text)
+    {
+        if (string.IsNullOrEmpty(ApiPrefixFont) || string.IsNullOrEmpty(text)) return text;
+
+        // Supondo que a fonte da API seja o alfabeto A-Z (26 chars)
+        // ᴀʙᴄᴅᴇғɢʜɪᴊᴋʟᴍɴᴏᴘǫʀsᴛᴜᴠᴡxʏᴢ
+        string alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        string lowerAlphabet = "abcdefghijklmnopqrstuvwxyz";
+        
+        var sb = new StringBuilder();
+        foreach (char c in text)
+        {
+            int index = alphabet.IndexOf(c);
+            if (index == -1) index = lowerAlphabet.IndexOf(c);
+
+            if (index >= 0 && index < ApiPrefixFont.Length)
+            {
+                // A fonte unicode pode ter caracteres que ocupam mais de um 'char' no C#
+                // mas se for flat string de 26 chars funciona direto.
+                sb.Append(ApiPrefixFont[index]);
+            }
+            else
+            {
+                sb.Append(c);
+            }
+        }
+        return sb.ToString();
     }
 
     public override void Unload(bool hotReload)
@@ -138,9 +200,12 @@ public class CS2_Tags : BasePlugin, IPluginConfig<CS2_TagsConfig>
                 // Converter cor da API (Hex) para CS2 ChatColor (Ex: {Red})
                 string csColor = CS2_TagsHelper.GetClosestChatColor(hexColor ?? "{Default}");
                 
-                // Aplicar a formatação definida na Config
+                // Aplicar a formatação definida na Config ou API
+                string prefixToUse = Config.PrefixEnabled ? ApplySpecialFont(prefix) : "";
+                string sepToUse = ApiPrefixSeparator ?? Config.PrefixSeparator;
+
                 string formattedPrefix = Config.PrefixEnabled 
-                    ? $"{csColor}{Config.TagPrefix}{prefix}{Config.TagSuffix}{Config.PlayerCustomFont}{Config.PrefixSeparator}" 
+                    ? $"{csColor}{Config.TagPrefix}{prefixToUse}{Config.TagSuffix}{Config.PlayerCustomFont}{sepToUse}" 
                     : ""; 
 
                 // Construir objeto do cargo
@@ -320,6 +385,7 @@ public class CS2_Tags : BasePlugin, IPluginConfig<CS2_TagsConfig>
         if (player != null && !AdminManager.PlayerHasPermissions(player, "@css/root")) return;
         
         LoadJsonBackup(ModuleDirectory + "/tags.json"); // Carrega o Backup local
+        _ = FetchApiConfig(); // Busca configurações dinâmicas
         _ = FetchTagsFromApi(); // Força fetch da API no reload
         
         Server.PrintToConsole("[CS2-Tags] Config reloaded and API fetched!");
