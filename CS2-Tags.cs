@@ -18,6 +18,7 @@ public class CS2_Tags : BasePlugin, IPluginConfig<CS2_TagsConfig>
 {
     private HashSet<string> GaggedIds = new HashSet<string>();
     public static JObject? JsonTags { get; private set; }
+    public static JArray? OrderedFlags { get; private set; }
     
     public CS2_TagsConfig Config { get; set; } = new CS2_TagsConfig();
 
@@ -135,7 +136,19 @@ public class CS2_Tags : BasePlugin, IPluginConfig<CS2_TagsConfig>
                 };
             }
 
+            // Guardar a ordem das flags tal como a API os retornou (ordenados por immunity desc)
+            JArray orderedFlagsList = new JArray();
+            foreach (JObject role in rolesArray)
+            {
+                string? flag = role["flag"]?.ToString();
+                if (!string.IsNullOrEmpty(flag)) { orderedFlagsList.Add(flag); }
+            }
+            orderedFlagsList.Add("everyone");
+
+            OrderedFlags = orderedFlagsList;
             newTagsStructure["tags"] = tagsRoot;
+            newTagsStructure["ordered_flags"] = OrderedFlags;
+            
             JsonTags = newTagsStructure;
 
             // Fazer backup para ficheiro local
@@ -170,6 +183,10 @@ public class CS2_Tags : BasePlugin, IPluginConfig<CS2_TagsConfig>
             {
                 var jsonData = File.ReadAllText(filepath);
                 JsonTags = JObject.Parse(jsonData);
+                if (JsonTags["ordered_flags"] is JArray arr)
+                {
+                    OrderedFlags = arr;
+                }
             }
         }
         catch(Exception ex)
@@ -284,13 +301,15 @@ public class CS2_Tags : BasePlugin, IPluginConfig<CS2_TagsConfig>
                 return HookResult.Handled;
             }
 
-            // Prioridade 2: Flag/Permissões
-            foreach (var tagKey in tagsObject.Properties())
+            // Prioridade 2: Flag/Permissões na ordem correta de Immunity
+            if (OrderedFlags != null)
             {
-                if (tagKey.Name.StartsWith("#") || tagKey.Name.StartsWith("@"))
+                foreach (var token in OrderedFlags)
                 {
-                    string groupOrPerm = tagKey.Name;
-                    bool hasPerm = tagKey.Name.StartsWith("#") ? AdminManager.PlayerInGroup(player, groupOrPerm) : AdminManager.PlayerHasPermissions(player, groupOrPerm);
+                    string groupOrPerm = token.ToString();
+                    if (groupOrPerm == "everyone") continue; // Processado no Priority 3
+                    
+                    bool hasPerm = groupOrPerm.StartsWith("#") ? AdminManager.PlayerInGroup(player, groupOrPerm) : AdminManager.PlayerHasPermissions(player, groupOrPerm);
 
                     if (hasPerm && tagsObject.TryGetValue(groupOrPerm, out var permTag) && permTag is JObject)
                     {
@@ -356,13 +375,15 @@ public class CS2_Tags : BasePlugin, IPluginConfig<CS2_TagsConfig>
                 return HookResult.Handled;
             }
 
-            // Prioridade 2: Flag/Perms
-            foreach (var tagKey in tagsObject.Properties())
+            // Prioridade 2: Flag/Perms na ordem correta de Immunity
+            if (OrderedFlags != null)
             {
-                if (tagKey.Name.StartsWith("#") || tagKey.Name.StartsWith("@"))
+                foreach (var token in OrderedFlags)
                 {
-                    string groupOrPerm = tagKey.Name;
-                    bool hasPerm = tagKey.Name.StartsWith("#") ? AdminManager.PlayerInGroup(player, groupOrPerm) : AdminManager.PlayerHasPermissions(player, groupOrPerm);
+                    string groupOrPerm = token.ToString();
+                    if (groupOrPerm == "everyone") continue;
+                    
+                    bool hasPerm = groupOrPerm.StartsWith("#") ? AdminManager.PlayerInGroup(player, groupOrPerm) : AdminManager.PlayerHasPermissions(player, groupOrPerm);
 
                     if (hasPerm && tagsObject.TryGetValue(groupOrPerm, out var permTag) && permTag is JObject)
                     {
@@ -412,12 +433,14 @@ public class CS2_Tags : BasePlugin, IPluginConfig<CS2_TagsConfig>
                 if (!string.IsNullOrEmpty(scoreboardValue)) { player.Clan = scoreboardValue; return; }
             }
 
-            foreach (var tagKey in tagsObject.Properties())
+            if (OrderedFlags != null)
             {
-                if (tagKey.Name.StartsWith("#") || tagKey.Name.StartsWith("@"))
+                foreach (var token in OrderedFlags)
                 {
-                    string groupOrPerm = tagKey.Name;
-                    bool hasPerm = tagKey.Name.StartsWith("#") ? AdminManager.PlayerInGroup(player, groupOrPerm) : AdminManager.PlayerHasPermissions(player, groupOrPerm);
+                    string groupOrPerm = token.ToString();
+                    if (groupOrPerm == "everyone") continue;
+                    
+                    bool hasPerm = groupOrPerm.StartsWith("#") ? AdminManager.PlayerInGroup(player, groupOrPerm) : AdminManager.PlayerHasPermissions(player, groupOrPerm);
 
                     if (hasPerm && tagsObject.TryGetValue(groupOrPerm, out var permTag) && permTag is JObject)
                     {
