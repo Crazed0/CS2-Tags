@@ -9,7 +9,7 @@ public class CS2_TagsConfig : BasePluginConfig
     public string ApiUrl { get; set; } = "https://api.nowaygamers.pt";
 
     [JsonPropertyName("UpdateIntervalSeconds")]
-    public int UpdateIntervalSeconds { get; set; } = 30;
+    public int UpdateIntervalSeconds { get; set; } = 10;
 
     [JsonPropertyName("PrefixEnabled")]
     public bool PrefixEnabled { get; set; } = true;
