@@ -60,6 +60,8 @@ public class CS2_Tags : BasePlugin, IPluginConfig<CS2_TagsConfig>
             }
         });
 
+        Server.PrintToConsole($"[CS2-Tags] Registered with UpdateInterval: {Config.UpdateIntervalSeconds}s");
+
         // Agendar atualizações autoáticas
         if (Config.UpdateIntervalSeconds > 0)
         {
@@ -198,7 +200,7 @@ public class CS2_Tags : BasePlugin, IPluginConfig<CS2_TagsConfig>
             string ids = string.Join(",", steamids);
             string url = $"{Config.ApiUrl.TrimEnd('/')}/perms/player?steamids={ids}";
             string timeStart = DateTime.Now.ToString("HH:mm:ss");
-            Server.PrintToConsole($"[CS2-Tags] [{timeStart}] Fetching tags for {ids.Length} players...");
+            Server.PrintToConsole($"[CS2-Tags] [{timeStart}] Fetching tags for {steamids.Count} players...");
             HttpResponseMessage response = await httpClient.GetAsync(url);
             response.EnsureSuccessStatusCode();
 
@@ -605,8 +607,17 @@ public class CS2_Tags : BasePlugin, IPluginConfig<CS2_TagsConfig>
             {
                 if (player.Clan != foundScoreboard)
                 {
-                    player.Clan = foundScoreboard;
+                    // Trick to force scoreboard update: toggle to empty and back
+                    player.Clan = "";
                     Utilities.SetStateChanged(player, "CCSPlayerController", "m_szClan");
+                    
+                    Server.NextFrame(() => {
+                        if (player != null && player.IsValid)
+                        {
+                            player.Clan = foundScoreboard;
+                            Utilities.SetStateChanged(player, "CCSPlayerController", "m_szClan");
+                        }
+                    });
                 }
             }
         }
