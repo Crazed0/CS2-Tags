@@ -47,6 +47,19 @@ public class CS2_Tags : BasePlugin, IPluginConfig<CS2_TagsConfig>
         // Buscar da API imediatamente
         _ = FetchTagsFromApi();
 
+        // Buscar tags dos jogadores online agora (ex: hot reload)
+        AddTimer(1.0f, () => {
+            var onlineSids = Utilities.GetPlayers()
+                .Where(p => p.IsValid && !p.IsBot && p.AuthorizedSteamID != null)
+                .Select(p => p.AuthorizedSteamID!.SteamId64.ToString())
+                .ToList();
+            
+            if (onlineSids.Count > 0)
+            {
+                _ = FetchPlayersTags(onlineSids);
+            }
+        });
+
         // Agendar atualizações autoáticas
         if (Config.UpdateIntervalSeconds > 0)
         {
