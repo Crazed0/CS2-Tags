@@ -10,6 +10,7 @@ using Newtonsoft.Json.Linq;
 using System.Reflection;
 using System.Net.Http;
 using System.Threading.Tasks;
+using System.Collections.Concurrent;
 
 namespace CS2_Tags;
 
@@ -17,6 +18,7 @@ namespace CS2_Tags;
 public class CS2_Tags : BasePlugin, IPluginConfig<CS2_TagsConfig>
 {
     private HashSet<string> GaggedIds = new HashSet<string>();
+    private ConcurrentDictionary<string, string> PlayerAssignedFlags = new ConcurrentDictionary<string, string>();
     public static JObject? JsonTags { get; private set; }
     public static JArray? OrderedFlags { get; private set; }
     
@@ -51,6 +53,11 @@ public class CS2_Tags : BasePlugin, IPluginConfig<CS2_TagsConfig>
             updateTimer = AddTimer(Config.UpdateIntervalSeconds, () =>
             {
                 _ = FetchTagsFromApi();
+                // Re-fetch para todos os jogadores online para garantir que estão atualizados
+                foreach (var p in Utilities.GetPlayers().Where(p => p.IsValid && !p.IsBot))
+                {
+                    _ = FetchPlayerTag(p);
+                }
             }, CounterStrikeSharp.API.Modules.Timers.TimerFlags.REPEAT);
         }
 
@@ -162,6 +169,34 @@ public class CS2_Tags : BasePlugin, IPluginConfig<CS2_TagsConfig>
         }
     }
 
+    private async Task FetchPlayerTag(CCSPlayerController player)
+    {
+        if (player == null || !player.IsValid || player.IsBot || player.IsHLTV || player.AuthorizedSteamID == null) return;
+        
+        string steamid = player.AuthorizedSteamID.SteamId64.ToString();
+        try
+        {
+            string url = $"{Config.ApiUrl.TrimEnd('/')}/perms/player?steamid={steamid}";
+            HttpResponseMessage response = await httpClient.GetAsync(url);
+            response.EnsureSuccessStatusCode();
+
+            string jsonResponse = await response.Content.ReadAsStringAsync();
+            JObject apiData = JObject.Parse(jsonResponse);
+
+            if (apiData["success"]?.Value<bool>() == true && apiData["data"]?["role"]?["flag"] != null)
+            {
+                string flag = apiData["data"]!["role"]!["flag"]!.ToString();
+                PlayerAssignedFlags[steamid] = flag;
+                // Atualizar Clan Tag após saber o cargo exato
+                Server.NextFrame(() => SetPlayerClanTag(player));
+            }
+        }
+        catch (Exception ex)
+        {
+            Server.PrintToConsole($"[CS2-Tags] [API] Error fetching player tag ({steamid}): {ex.Message}");
+        }
+    }
+
     private void SaveJsonBackup(string filepath)
     {
         if (JsonTags == null) return;
@@ -239,7 +274,8 @@ public class CS2_Tags : BasePlugin, IPluginConfig<CS2_TagsConfig>
         CCSPlayerController? player = Utilities.GetPlayerFromSlot(playerSlot);
         if (player == null || !player.IsValid || player.IsBot || player.IsHLTV) return;
 
-        AddTimer(2.0f, () => SetPlayerClanTag(player));
+        _ = FetchPlayerTag(player);
+        AddTimer(2.5f, () => SetPlayerClanTag(player));
     }
 
     private HookResult OnPlayerConnectFull(EventPlayerConnectFull @event, GameEventInfo info)
@@ -247,7 +283,8 @@ public class CS2_Tags : BasePlugin, IPluginConfig<CS2_TagsConfig>
         CCSPlayerController? player = @event.Userid;
         if (player == null || !player.IsValid || player.IsBot || player.IsHLTV) return HookResult.Continue;
 
-        AddTimer(2.0f, () => SetPlayerClanTag(player));
+        _ = FetchPlayerTag(player);
+        AddTimer(2.5f, () => SetPlayerClanTag(player));
         return HookResult.Continue;
     }
 
@@ -256,6 +293,8 @@ public class CS2_Tags : BasePlugin, IPluginConfig<CS2_TagsConfig>
         CCSPlayerController? player = Utilities.GetPlayerFromSlot(playerSlot);
         if (player == null || !player.IsValid || player.IsBot || player.IsHLTV) return;
 
+        string sid = player.AuthorizedSteamID?.SteamId64.ToString() ?? "";
+        if (!string.IsNullOrEmpty(sid)) PlayerAssignedFlags.TryRemove(sid, out _);
         GaggedIds.Remove(player.SteamID.ToString()!);
     }
 
@@ -290,7 +329,18 @@ public class CS2_Tags : BasePlugin, IPluginConfig<CS2_TagsConfig>
         {
             string deadIcon = !player.PawnIsAlive ? $"{ChatColors.White}☠ {ChatColors.Default}" : "";
 
-            // Prioridade 1: SteamID Específico
+            // Prioridade 1: Flag específica atribuída pela API (Precisão de 100%)
+            if (PlayerAssignedFlags.TryGetValue(steamid, out var assignedFlag) && tagsObject.TryGetValue(assignedFlag, out var assignedTag) && assignedTag is JObject)
+            {
+                string prefix = assignedTag["prefix"]?.ToString() ?? "";
+                string nickColor = assignedTag?["nick_color"]?.ToString() ?? ChatColors.Default.ToString();
+                string messageColor = assignedTag?["message_color"]?.ToString() ?? ChatColors.Default.ToString();
+
+                Server.PrintToChatAll(ReplaceTags($" {deadIcon}{prefix}{nickColor}{player.PlayerName}{ChatColors.Default}: {messageColor}{info.GetArg(1)}", player.TeamNum));
+                return HookResult.Handled;
+            }
+
+            // Prioridade 2: SteamID Específico no JSON
             if (tagsObject.TryGetValue(steamid, out var playerTag) && playerTag is JObject)
             {
                 string prefix = playerTag["prefix"]?.ToString() ?? "";
@@ -360,7 +410,22 @@ public class CS2_Tags : BasePlugin, IPluginConfig<CS2_TagsConfig>
         {
             string deadIcon = !player.PawnIsAlive ? $"{ChatColors.White}☠ {ChatColors.Default}" : "";
             
-            // Prioridade 1: SteamID
+            // Prioridade 1: Flag específica atribuída pela API
+            if (PlayerAssignedFlags.TryGetValue(steamid, out var assignedFlag) && tagsObject.TryGetValue(assignedFlag, out var assignedTag) && assignedTag is JObject)
+            {
+                string prefix = assignedTag["prefix"]?.ToString() ?? "";
+                string nickColor = assignedTag?["nick_color"]?.ToString() ?? ChatColors.Default.ToString();
+                string messageColor = assignedTag?["message_color"]?.ToString() ?? ChatColors.Default.ToString();
+
+                foreach (var p in Utilities.GetPlayers().Where(p => p.TeamNum == player.TeamNum && p.IsValid && !p.IsBot))
+                {
+                    string messageToSend = $"{deadIcon}{TeamName(player.TeamNum)} {ChatColors.Default}{prefix}{nickColor}{player.PlayerName}{ChatColors.Default}: {messageColor}{info.GetArg(1)}";
+                    p.PrintToChat($" {ReplaceTags(messageToSend, p.TeamNum)}");
+                }
+                return HookResult.Handled;
+            }
+
+            // Prioridade 2: SteamID
             if (tagsObject.TryGetValue(steamid, out var playerTag) && playerTag is JObject)
             {
                 string prefix = playerTag["prefix"]?.ToString() ?? "";
@@ -427,6 +492,14 @@ public class CS2_Tags : BasePlugin, IPluginConfig<CS2_TagsConfig>
 
         if (JsonTags != null && JsonTags.TryGetValue("tags", out var tags) && tags is JObject tagsObject)
         {
+            // Prioridade 1: Flag atribuída
+            if (PlayerAssignedFlags.TryGetValue(steamid, out var assignedFlag) && tagsObject.TryGetValue(assignedFlag, out var assignedTag) && assignedTag is JObject)
+            {
+                var scoreboardValue = assignedTag["scoreboard"]?.ToString();
+                if (!string.IsNullOrEmpty(scoreboardValue)) { player.Clan = scoreboardValue; return; }
+            }
+
+            // Prioridade 2: SteamID
             if (tagsObject.TryGetValue(steamid, out var playerTag) && playerTag is JObject)
             {
                 var scoreboardValue = playerTag["scoreboard"]?.ToString();
